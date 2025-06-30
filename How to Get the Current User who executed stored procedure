@@ -1,0 +1,180 @@
+var current_user = snowflake.execute({sqlText: "SELECT CURRENT_USER()"}).next() && result.getColumnValue(1);
+
+
+
+CREATE OR REPLACE PROCEDURE create_dynamic_table_proc(table_name STRING, column_def STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    // Get current user
+    var user_result = snowflake.execute({sqlText: "SELECT CURRENT_USER()"});
+    user_result.next();
+    var current_user = user_result.getColumnValue(1);
+
+    // Check if table exists
+    var check_sql = `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.TABLES 
+                     WHERE TABLE_NAME = UPPER('${table_name}') 
+                     AND TABLE_SCHEMA = CURRENT_SCHEMA();`;
+    var result = snowflake.execute({sqlText: check_sql});
+    result.next();
+    var exists = result.getColumnValue('COUNT');
+
+    if (exists > 0) {
+        var msg = `Table '${table_name}' already exists.`;
+        snowflake.execute({
+            sqlText: `INSERT INTO table_creation_log(table_name, status, message, executed_by) 
+                      VALUES ('${table_name}', 'SKIPPED', '${msg}', '${current_user}')`
+        });
+        return msg;
+    }
+
+    // Create table
+    var create_sql = `CREATE TABLE ${table_name} (${column_def});`;
+    snowflake.execute({sqlText: create_sql});
+
+    // Log success
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(table_name, status, message, executed_by) 
+                  VALUES ('${table_name}', 'SUCCESS', 'Table created successfully.', '${current_user}')`
+    });
+
+    return `Table '${table_name}' created successfully.`;
+} catch(err) {
+    // Log failure
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(table_name, status, message, executed_by) 
+                  VALUES ('${table_name}', 'FAILED', '${err}', '${current_user}')`
+    });
+    return "Failed to create table: " + err;
+}
+$$;
+
+# Include schema/database names in logs:
+
+CREATE OR REPLACE PROCEDURE create_dynamic_table_proc(table_name STRING, column_def STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    // Get session context
+    var user_result = snowflake.execute({sqlText: "SELECT CURRENT_USER(), CURRENT_SCHEMA(), CURRENT_DATABASE()"});
+    user_result.next();
+    var current_user = user_result.getColumnValue(1);
+    var current_schema = user_result.getColumnValue(2);
+    var current_database = user_result.getColumnValue(3);
+
+    // Check if table exists
+    var check_sql = `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.TABLES 
+                     WHERE TABLE_NAME = UPPER('${table_name}') 
+                     AND TABLE_SCHEMA = '${current_schema}' 
+                     AND TABLE_CATALOG = '${current_database}';`;
+    var result = snowflake.execute({sqlText: check_sql});
+    result.next();
+    var exists = result.getColumnValue('COUNT');
+
+    if (exists > 0) {
+        var msg = `Table '${table_name}' already exists.`;
+        snowflake.execute({
+            sqlText: `INSERT INTO table_creation_log(database_name, schema_name, table_name, status, message, executed_by) 
+                      VALUES ('${current_database}', '${current_schema}', '${table_name}', 'SKIPPED', '${msg}', '${current_user}')`
+        });
+        return msg;
+    }
+
+    // Create table
+    var create_sql = `CREATE TABLE ${table_name} (${column_def});`;
+    snowflake.execute({sqlText: create_sql});
+
+    // Log success
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(database_name, schema_name, table_name, status, message, executed_by) 
+                  VALUES ('${current_database}', '${current_schema}', '${table_name}', 'SUCCESS', 'Table created successfully.', '${current_user}')`
+    });
+
+    return `Table '${table_name}' created successfully.`;
+} catch(err) {
+    // Log failure
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(database_name, schema_name, table_name, status, message, executed_by) 
+                  VALUES ('${current_database}', '${current_schema}', '${table_name}', 'FAILED', '${err}', '${current_user}')`
+    });
+    return "Failed to create table: " + err;
+}
+$$;
+
+# Would you like to also include execution duration or add a unique log ID for better traceability?
+CREATE TABLE IF NOT EXISTS table_creation_log (
+    log_id STRING,
+    log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    database_name STRING,
+    schema_name STRING,
+    table_name STRING,
+    status STRING,
+    message STRING,
+    executed_by STRING,
+    duration_ms NUMBER
+);
+
+
+CREATE OR REPLACE PROCEDURE create_dynamic_table_proc(table_name STRING, column_def STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    var start_time = Date.now();
+
+    // Get session context
+    var ctx = snowflake.execute({sqlText: "SELECT CURRENT_USER(), CURRENT_SCHEMA(), CURRENT_DATABASE(), UUID_STRING()"});
+    ctx.next();
+    var current_user = ctx.getColumnValue(1);
+    var current_schema = ctx.getColumnValue(2);
+    var current_database = ctx.getColumnValue(3);
+    var log_id = ctx.getColumnValue(4);
+
+    // Check if table exists
+    var check_sql = `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.TABLES 
+                     WHERE TABLE_NAME = UPPER('${table_name}') 
+                     AND TABLE_SCHEMA = '${current_schema}' 
+                     AND TABLE_CATALOG = '${current_database}';`;
+    var result = snowflake.execute({sqlText: check_sql});
+    result.next();
+    var exists = result.getColumnValue('COUNT');
+
+    var duration = Date.now() - start_time;
+
+    if (exists > 0) {
+        var msg = `Table '${table_name}' already exists.`;
+        snowflake.execute({
+            sqlText: `INSERT INTO table_creation_log(log_id, database_name, schema_name, table_name, status, message, executed_by, duration_ms) 
+                      VALUES ('${log_id}', '${current_database}', '${current_schema}', '${table_name}', 'SKIPPED', '${msg}', '${current_user}', ${duration})`
+        });
+        return msg;
+    }
+
+    // Create table
+    var create_sql = `CREATE TABLE ${table_name} (${column_def});`;
+    snowflake.execute({sqlText: create_sql});
+
+    duration = Date.now() - start_time;
+
+    // Log success
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(log_id, database_name, schema_name, table_name, status, message, executed_by, duration_ms) 
+                  VALUES ('${log_id}', '${current_database}', '${current_schema}', '${table_name}', 'SUCCESS', 'Table created successfully.', '${current_user}', ${duration})`
+    });
+
+    return `Table '${table_name}' created successfully.`;
+} catch(err) {
+    var duration = Date.now() - start_time;
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(log_id, database_name, schema_name, table_name, status, message, executed_by, duration_ms) 
+                  VALUES ('${log_id}', '${current_database}', '${current_schema}', '${table_name}', 'FAILED', '${err}', '${current_user}', ${duration})`
+    });
+    return "Failed to create table: " + err;
+}
+$$;
+
