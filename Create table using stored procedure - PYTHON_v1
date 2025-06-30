@@ -1,0 +1,35 @@
+from snowflake.snowpark import Session
+from snowflake.snowpark.functions import col
+from snowflake.snowpark.types import StringType
+from snowflake.snowpark import StoredProcedure
+
+# Define the procedure logic
+def create_table_sp(session: Session) -> str:
+    session.sql("""
+        CREATE TABLE IF NOT EXISTS my_table (
+            id INT,
+            name STRING,
+            created_at TIMESTAMP
+        )
+    """).collect()
+    return "Table created successfully."
+
+# Register the stored procedure
+session = Session.builder.configs({
+    "account": "<your_account>",
+    "user": "<your_user>",
+    "password": "<your_password>",
+    "role": "<your_role>",
+    "warehouse": "<your_warehouse>",
+    "database": "<your_database>",
+    "schema": "<your_schema>"
+}).create()
+
+session.sproc.register(
+    func=create_table_sp,
+    return_type=StringType(),
+    input_types=[],
+    name="create_table_sp",
+    is_permanent=True,
+    stage_location="@my_stage"
+)
