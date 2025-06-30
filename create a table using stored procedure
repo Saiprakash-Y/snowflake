@@ -1,0 +1,117 @@
+
+CREATE OR REPLACE PROCEDURE create_table_proc()
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    var sql_command = `CREATE TABLE IF NOT EXISTS my_table (
+        id INT,
+        name STRING,
+        created_at TIMESTAMP
+    );`;
+
+    snowflake.execute({sqlText: sql_command});
+    return "Table created successfully.";
+} catch(err) {
+    return "Failed to create table: " + err;
+}
+$$;
+
+
+# CREATE OR REPLACE PROCEDURE: This creates a new procedure or replaces an existing one with the same name.
+# create_table_proc(): This is the name of the procedure and takes no parameters.
+# RETURNS STRING: The procedure returns a string message indicating success or failure.
+# LANGUAGE JAVASCRIPT: The procedure logic is written in javascript.
+# $$....$$: Delimiters of the javascript code block.
+
+# try{...}catch(err){...}
+   #1. This is a standard javascript error-handling block.
+   #2. If the table creation succeeds, it returns a success message.
+   #3. If it fails, it catches the error and returns a failure message with the error details.
+
+# var sql_command: This defines the sql command to create a table named my_table.
+# The clause IF NOT EXISTS ensures that the table is only created if it doesn't alreday exist.
+
+# snowflake.execute({sqltext: sql_command})
+   #1. This is a snowflake specific method to execute SQL from within javascript.
+   #2. It runs the sql command stored in sql_command.
+
+# Stored Procedure that can accept parameters and create a table dynamically:
+CREATE OR REPLACE PROCEDURE create_dynamic_table_proc(table_name STRING, column_def STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+TRY{
+  Var sql_command = `CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (${COLUMN_DEF});`;
+  snowflake.execute({sqltext:sql_command});
+  return `Table ${table_name} created successfully.`;  
+  } catch(err){
+  return "Failed to create table: " + err;
+}
+$$;
+
+# USAGE:
+CALL create_dynamic_table_proc(
+  'employees',
+  'emp_id INT, emp_name STRING, hire_date DATE'
+);
+
+# Procedure to check if table alreday exists and to create a new table if not exists.
+#1. Create a logging table:
+
+CREATE TABLE IF NOT EXISTS table_creation_log (
+    log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    table_name STRING,
+    status STRING,
+    message STRING
+);
+
+#2. Logging and existence check
+CREATE OR REPLACE PROCEDURE create_dynamic_table_proc(table_name STRING, column_def STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    // Check if table already exists
+    var check_sql = `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.TABLES 
+                     WHERE TABLE_NAME = UPPER('${table_name}') 
+                     AND TABLE_SCHEMA = CURRENT_SCHEMA();`;
+    var result = snowflake.execute({sqlText: check_sql});
+    result.next();
+    var exists = result.getColumnValue('COUNT');
+
+    if (exists > 0) {
+        var msg = `Table '${table_name}' already exists.`;
+        snowflake.execute({
+            sqlText: `INSERT INTO table_creation_log(table_name, status, message) 
+                      VALUES ('${table_name}', 'SKIPPED', '${msg}')`
+        });
+        return msg;
+    }
+
+    // Create table
+    var create_sql = `CREATE TABLE ${table_name} (${column_def});`;
+    snowflake.execute({sqlText: create_sql});
+
+    // Log success
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(table_name, status, message) 
+                  VALUES ('${table_name}', 'SUCCESS', 'Table created successfully.')`
+    });
+
+    return `Table '${table_name}' created successfully.`;
+} catch(err) {
+    // Log failure
+    snowflake.execute({
+        sqlText: `INSERT INTO table_creation_log(table_name, status, message) 
+                  VALUES ('${table_name}', 'FAILED', '${err}')`
+    });
+    return "Failed to create table: " + err;
+}
+$$;
+
+
+
